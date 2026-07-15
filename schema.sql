@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS results (
     points         NUMERIC(8,3),
     bp_points      NUMERIC(8,3),
     scraped_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (competition_id, lifter_id, event, division, weight_class)
+    -- entry_id is the site's per-entry natural key. A lifter can legitimately
+    -- appear twice in one division (double registration) with distinct entry_ids.
+    UNIQUE (competition_id, entry_id)
 );
 
 -- One row per individual attempt (up to 9 per result: 3 squat, 3 bench, 3 deadlift).
