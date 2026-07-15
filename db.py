@@ -84,37 +84,100 @@ def upsert_team(cur, team_id: int, name: str | None = None):
     )
 
 
-def replace_results_for_competition(cur, comp_id: int, results: list[dict]):
-    """Delete existing results (cascades to attempts) then reinsert — idempotent."""
-    cur.execute("DELETE FROM results WHERE competition_id = %s", (comp_id,))
+def bulk_upsert_lifters_from_results(cur, results: list[dict]):
+    """Batch-insert thin lifter rows referenced by a competition's results."""
+    rows, seen = [], set()
     for r in results:
-        cur.execute(
-            """
-            INSERT INTO results
-                (competition_id, lifter_id, team_id, entry_id, event, division,
-                 sex, equipment, weight_class, bodyweight, placement, lifter_name,
-                 lifter_state, yob, total, points, bp_points)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            RETURNING id
-            """,
-            (comp_id, r.get("lifter_id"), r.get("team_id"), r.get("entry_id"),
-             r.get("event"), r.get("division"), r.get("sex"), r.get("equipment"),
-             r.get("weight_class"), r.get("bodyweight"), r.get("placing"),
-             r.get("lifter_name"), r.get("lifter_state"), r.get("yob"),
-             r.get("total"), r.get("points"), r.get("bp_points")),
-        )
-        result_id = cur.fetchone()[0]
+        lid = r.get("lifter_id")
+        if lid is None or lid in seen:
+            continue
+        seen.add(lid)
+        rows.append((lid, r.get("lifter_name"), r.get("yob"), r.get("lifter_state")))
+    if not rows:
+        return
+    psycopg2.extras.execute_values(
+        cur,
+        """
+        INSERT INTO lifters (id, name, birth_year, state) VALUES %s
+        ON CONFLICT (id) DO UPDATE SET
+            name=COALESCE(EXCLUDED.name, lifters.name),
+            birth_year=COALESCE(EXCLUDED.birth_year, lifters.birth_year),
+            state=COALESCE(EXCLUDED.state, lifters.state),
+            scraped_at=now()
+        """,
+        rows,
+    )
+
+
+def bulk_upsert_teams_from_results(cur, results: list[dict]):
+    """Batch-insert thin team rows referenced by a competition's results."""
+    ids = {r.get("team_id") for r in results if r.get("team_id") is not None}
+    if not ids:
+        return
+    psycopg2.extras.execute_values(
+        cur,
+        """
+        INSERT INTO teams (id, name) VALUES %s
+        ON CONFLICT (id) DO NOTHING
+        """,
+        [(tid, None) for tid in ids],
+    )
+
+
+def replace_results_for_competition(cur, comp_id: int, results: list[dict]):
+    """Delete existing results (cascades to attempts) then bulk reinsert — idempotent.
+
+    Uses two batched round-trips instead of one INSERT per result + per attempt:
+      1. execute_values on results with RETURNING id (preserves input order)
+      2. execute_values on all attempts at once, keyed by the returned ids
+    """
+    cur.execute("DELETE FROM results WHERE competition_id = %s", (comp_id,))
+    if not results:
+        return
+
+    result_rows = [
+        (comp_id, r.get("lifter_id"), r.get("team_id"), r.get("entry_id"),
+         r.get("event"), r.get("division"), r.get("sex"), r.get("equipment"),
+         r.get("weight_class"), r.get("bodyweight"), r.get("placing"),
+         r.get("lifter_name"), r.get("lifter_state"), r.get("yob"),
+         r.get("total"), r.get("points"), r.get("bp_points"))
+        for r in results
+    ]
+    # execute_values preserves the order of returned rows, so returned ids line
+    # up positionally with `results`.
+    new_ids = psycopg2.extras.execute_values(
+        cur,
+        """
+        INSERT INTO results
+            (competition_id, lifter_id, team_id, entry_id, event, division,
+             sex, equipment, weight_class, bodyweight, placement, lifter_name,
+             lifter_state, yob, total, points, bp_points)
+        VALUES %s
+        RETURNING id
+        """,
+        result_rows,
+        fetch=True,
+    )
+    result_ids = [row[0] for row in new_ids]
+
+    attempt_rows = []
+    for result_id, r in zip(result_ids, results):
         for a in r.get("attempts", []):
-            cur.execute(
-                """
-                INSERT INTO attempts
-                    (result_id, discipline, attempt_no, weight_kg, is_good, video_id)
-                VALUES (%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (result_id, discipline, attempt_no) DO NOTHING
-                """,
-                (result_id, a["discipline"], a["attempt_no"], a["weight_kg"],
-                 a["is_good"], a["video_id"]),
+            attempt_rows.append(
+                (result_id, a["discipline"], a["attempt_no"],
+                 a["weight_kg"], a["is_good"], a["video_id"])
             )
+    if attempt_rows:
+        psycopg2.extras.execute_values(
+            cur,
+            """
+            INSERT INTO attempts
+                (result_id, discipline, attempt_no, weight_kg, is_good, video_id)
+            VALUES %s
+            ON CONFLICT (result_id, discipline, attempt_no) DO NOTHING
+            """,
+            attempt_rows,
+        )
 
 
 def existing_competition_ids(cur) -> set[int]:

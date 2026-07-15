@@ -61,12 +61,8 @@ def cmd_scrape_competitions(args):
 
             db.upsert_competition(cur, detail)
             # Ensure referenced lifters/teams exist (thin rows; detail filled later)
-            for r in detail["results"]:
-                if r.get("lifter_id"):
-                    db.upsert_lifter(cur, r["lifter_id"], name=r.get("lifter_name"),
-                                     birth_year=r.get("yob"), state=r.get("lifter_state"))
-                if r.get("team_id"):
-                    db.upsert_team(cur, r["team_id"])
+            db.bulk_upsert_lifters_from_results(cur, detail["results"])
+            db.bulk_upsert_teams_from_results(cur, detail["results"])
             db.replace_results_for_competition(cur, c["id"], detail["results"])
             conn.commit()
             loaded += 1
