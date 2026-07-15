@@ -1,12 +1,22 @@
 # Running the lifter-detail stage on a VPS
 
-The main load (competitions, results, attempts, teams, records) is done. The
-**lifter-detail** stage is the long one (~12–13k pages at 1 req/sec ≈ 3.5–4 h),
+> **Optional.** The competition results tables already include each lifter's
+> **year of birth** and **home state**, and the initial load populated both for
+> all lifters. So this stage is not needed to complete those fields. Its only
+> remaining value is re-confirming that data and (optionally) per-lifter
+> personal-best history, which is already derivable from the loaded results.
+> Documented here in case you want it anyway on the Powerlifting America data,
+> and as the pattern to reuse for another federation.
+
+The **lifter-detail** stage is the long one (~10k+ pages at 1 req/sec ≈ 3–4 h),
 so it's split out to run on a VPS against the **same NeonDB**.
 
 What it does: for every lifter whose `birth_year` is still NULL, it fetches
 `lifters-view?id=N` and fills in **birth year** and **home state**. Everything
 else about each lifter (name, their results, and all attempts) is already loaded.
+Note: after the standard full load there are usually **no** such lifters left,
+so this will report 0 to do unless you're running it against a fresh DB where
+the competition stage did not capture YOB.
 
 It is **resumable and idempotent** — safe to stop/restart; it only re-fetches
 lifters still missing detail.

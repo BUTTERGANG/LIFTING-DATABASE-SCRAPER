@@ -20,6 +20,17 @@ crawl is safe to stop and resume at any time.
 
 All weights are stored in **kilograms** (the site's canonical unit).
 
+### Current dataset (Powerlifting America, loaded 2026-07-15)
+
+| Table | Rows | | Table | Rows |
+|---|---|---|---|---|
+| competitions | 553 | | results | 22,285 |
+| lifters | 9,702 | | attempts | 200,565 |
+| teams | 487 | | records | 97,381 |
+
+Meets span 2020-01-01 → 2026-06-27. See `CHANGELOG.md` for load notes and the
+fixes made against live data.
+
 ## Setup
 
 ```bash
