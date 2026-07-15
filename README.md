@@ -87,6 +87,9 @@ Use a separate NeonDB database (a different `DATABASE_URL`) per federation so th
 data stays isolated. The `raw_html/` cache is keyed by page, so give each federation
 its own checkout (or clear `raw_html/`) to avoid mixing cached pages.
 
+See [`FEDERATIONS.md`](FEDERATIONS.md) for the known federation instances on the
+platform (e.g. Powerlifting America and USA Powerlifting) and how they were found.
+
 ## Politeness
 
 Requests are rate-limited (default 1/sec, set `SCRAPE_DELAY_SECONDS` in `.env`)
